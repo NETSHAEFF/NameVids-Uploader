@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Контроль Автопостинга</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 p-4 md:p-8 font-sans">
+    <div class="max-w-4xl mx-auto space-y-6">
+
+        <div
+            class="bg-white p-6 rounded-xl shadow-sm border flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800">🚀 NameVids AutoPoster</h1>
+                <p class="text-sm text-gray-500 mt-1">Статус: <span id="statusLabel"
+                        class="font-bold">Загрузка...</span></p>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="text-right">
+                    <label class="block text-[10px] uppercase font-bold text-gray-400">Задержка (мин)</label>
+                    <input type="number" id="delayInput" value="5" min="1"
+                        class="border rounded px-2 py-1 w-20 text-center font-bold">
+                </div>
+                <button id="startBtn" onclick="startPublishing()"
+                    class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-lg transition shadow-md">ПУСК</button>
+                <button id="stopBtn" onclick="stopPublishing()"
+                    class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-lg transition shadow-md hidden">СТОП</button>
+            </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-xl shadow-sm border">
+            <h2 class="text-sm font-bold text-gray-700 uppercase mb-3 flex items-center gap-2">
+                🔑 Авторизация
+            </h2>
+            <div class="flex gap-2">
+                <input type="text" id="cookieInput"
+                    class="flex-1 border p-2 rounded-lg bg-gray-50 text-xs font-mono focus:ring-2 focus:ring-blue-400 outline-none"
+                    placeholder="Вставьте Cookie из браузера (строка 'Cookie: ...')">
+                <button onclick="saveCookie()"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition">Обновить</button>
+            </div>
+        </div>
+
+        <div class="bg-blue-600 p-6 rounded-xl shadow-lg text-white">
+            <h2 class="text-sm font-bold uppercase mb-4 opacity-80">Настройки для всей очереди</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-bold mb-1">Общий заголовок (Title):</label>
+                    <input type="text" id="globalTitle" onchange="saveMeta('title', this.value)"
+                        class="w-full border-none p-2 rounded-lg text-gray-900 shadow-inner"
+                        placeholder="Только для видео...">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold mb-1">Общее описание (Caption):</label>
+                    <input type="text" id="globalCaption" onchange="saveMeta('caption', this.value)"
+                        class="w-full border-none p-2 rounded-lg text-gray-900 shadow-inner"
+                        placeholder="Для фото и видео...">
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 p-4 rounded-xl shadow-inner border border-gray-700">
+            <div class="flex justify-between items-center mb-2">
+                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Текущая операция</span>
+                <span class="animate-pulse w-2 h-2 bg-green-400 rounded-full" id="indicator"></span>
+            </div>
+            <p id="currentAction" class="text-green-400 font-mono text-sm">Ожидание...</p>
+        </div>
+
+        <div class="bg-white p-6 rounded-xl shadow-sm border">
+            <h2 class="text-sm font-bold text-gray-700 uppercase mb-4">Файлы в очереди (uploads)</h2>
+            <div id="fileList" class="grid grid-cols-1 gap-2">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        setInterval(fetchState, 1500);
+        fetchState();
+
+        async function fetchState() {
+            const res = await fetch('/api/state');
+            const data = await res.json();
+
+            const statusLabel = document.getElementById('statusLabel');
+            statusLabel.innerText = data.isRunning ? 'В РАБОТЕ' : 'ОСТАНОВЛЕНО';
+            statusLabel.className = data.isRunning ? 'font-bold text-green-500' : 'font-bold text-red-500';
+
+            document.getElementById('currentAction').innerText = data.currentAction;
+            document.getElementById('startBtn').classList.toggle('hidden', data.isRunning);
+            document.getElementById('stopBtn').classList.toggle('hidden', !data.isRunning);
+            document.getElementById('indicator').classList.toggle('hidden', !data.isRunning);
+
+            if (document.activeElement.id !== 'globalTitle') document.getElementById('globalTitle').value = data.metadata.title || '';
+            if (document.activeElement.id !== 'globalCaption') document.getElementById('globalCaption').value = data.metadata.caption || '';
+            if (document.activeElement.id !== 'cookieInput' && data.cookie) {
+                document.getElementById('cookieInput').value = data.cookie.substring(0, 50) + "...";
+            }
+
+            renderFiles(data.files);
+        }
+
+        function renderFiles(files) {
+            const container = document.getElementById('fileList');
+            if (files.length === 0) {
+                container.innerHTML = '<div class="text-center p-8 border-2 border-dashed rounded-xl text-gray-400">Папка uploads пуста. Загрузите файлы через SFTP.</div>';
+                return;
+            }
+            container.innerHTML = files.map((f, i) => `
+                <div class="flex items-center justify-between p-3 rounded-lg border ${i === 0 ? 'bg-yellow-50 border-yellow-200 shadow-sm' : 'bg-white text-gray-500'}">
+                    <span class="text-sm font-medium truncate flex-1">${f}</span>
+                    ${i === 0 ? '<span class="text-[10px] font-bold text-yellow-600 bg-yellow-200 px-2 py-1 rounded">СЛЕДУЮЩИЙ</span>' : ''}
+                </div>
+            `).join('');
+        }
+
+        async function saveCookie() {
+            const cookie = prompt("Вставьте полную строку Cookie:");
+            if (!cookie) return;
+            await fetch('/api/cookie', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cookie })
+            });
+            alert("Cookie обновлена!");
+        }
+
+        async function saveMeta(field, value) {
+            await fetch('/api/metadata', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ field, value })
+            });
+        }
+
+        async function startPublishing() {
+            const delay = document.getElementById('delayInput').value;
+            await fetch('/api/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ delay: parseFloat(delay) })
+            });
+        }
+
+        async function stopPublishing() {
+            await fetch('/api/stop', { method: 'POST' });
+        }
+    </script>
+</body>
+
+</html>
